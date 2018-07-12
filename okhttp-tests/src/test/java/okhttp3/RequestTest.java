@@ -21,6 +21,7 @@ import java.io.IOException;
 import java.net.URI;
 import java.util.Arrays;
 import java.util.Collections;
+import java.util.UUID;
 import okhttp3.internal.Util;
 import okio.Buffer;
 import org.junit.Test;
@@ -123,7 +124,7 @@ public final class RequestTest {
     assertEquals(HttpUrl.get("http://localhost/api"), request.url());
   }
 
-  @Test public void newBuilderUrlResetsUrl() throws Exception {
+  @Test public void newBuilderUrlResetsUrl() {
     Request requestWithoutCache = new Request.Builder().url("http://localhost/api").build();
     Request builtRequestWithoutCache =
         requestWithoutCache.newBuilder().url("http://localhost/api/foo").build();
@@ -137,7 +138,7 @@ public final class RequestTest {
     assertEquals(HttpUrl.get("http://localhost/api/foo"), builtRequestWithCache.url());
   }
 
-  @Test public void cacheControl() throws Exception {
+  @Test public void cacheControl() {
     Request request = new Request.Builder()
         .cacheControl(new CacheControl.Builder().noCache().build())
         .url("https://square.com")
@@ -145,7 +146,7 @@ public final class RequestTest {
     assertEquals(Arrays.asList("no-cache"), request.headers("Cache-Control"));
   }
 
-  @Test public void emptyCacheControlClearsAllCacheControlHeaders() throws Exception {
+  @Test public void emptyCacheControlClearsAllCacheControlHeaders() {
     Request request = new Request.Builder()
         .header("Cache-Control", "foo")
         .cacheControl(new CacheControl.Builder().build())
@@ -154,13 +155,13 @@ public final class RequestTest {
     assertEquals(Collections.<String>emptyList(), request.headers("Cache-Control"));
   }
 
-  @Test public void headerAcceptsPermittedCharacters() throws Exception {
+  @Test public void headerAcceptsPermittedCharacters() {
     Request.Builder builder = new Request.Builder();
     builder.header("AZab09~", "AZab09 ~");
     builder.addHeader("AZab09~", "AZab09 ~");
   }
 
-  @Test public void emptyNameForbidden() throws Exception {
+  @Test public void emptyNameForbidden() {
     Request.Builder builder = new Request.Builder();
     try {
       builder.header("", "Value");
@@ -174,7 +175,7 @@ public final class RequestTest {
     }
   }
 
-  @Test public void headerForbidsNullArguments() throws Exception {
+  @Test public void headerForbidsNullArguments() {
     Request.Builder builder = new Request.Builder();
     try {
       builder.header(null, "Value");
@@ -198,7 +199,7 @@ public final class RequestTest {
     }
   }
 
-  @Test public void headerAllowsTabOnlyInValues() throws Exception {
+  @Test public void headerAllowsTabOnlyInValues() {
     Request.Builder builder = new Request.Builder();
     builder.header("key", "sample\tvalue");
     try {
@@ -208,7 +209,7 @@ public final class RequestTest {
     }
   }
 
-  @Test public void headerForbidsControlCharacters() throws Exception {
+  @Test public void headerForbidsControlCharacters() {
     assertForbiddenHeader("\u0000");
     assertForbiddenHeader("\r");
     assertForbiddenHeader("\n");
@@ -240,6 +241,103 @@ public final class RequestTest {
       fail();
     } catch (IllegalArgumentException expected) {
     }
+  }
+
+  @Test public void noTag() {
+    Request request = new Request.Builder()
+        .url("https://square.com")
+        .build();
+    assertNull(request.tag());
+    assertNull(request.tag(Object.class));
+    assertNull(request.tag(UUID.class));
+    assertNull(request.tag(String.class));
+  }
+
+  @Test public void defaultTag() {
+    UUID tag = UUID.randomUUID();
+    Request request = new Request.Builder()
+        .url("https://square.com")
+        .tag(tag)
+        .build();
+    assertEquals(tag, request.tag());
+    assertEquals(tag, request.tag(Object.class));
+    assertNull(request.tag(UUID.class));
+    assertNull(request.tag(String.class));
+  }
+
+  @Test public void nullRemovesTag() {
+    Request request = new Request.Builder()
+        .url("https://square.com")
+        .tag("a")
+        .tag(null)
+        .build();
+    assertNull(request.tag());
+  }
+
+  @Test public void objectTag() {
+    UUID tag = UUID.randomUUID();
+    Request request = new Request.Builder()
+        .url("https://square.com")
+        .tag(Object.class, tag)
+        .build();
+    assertEquals(tag, request.tag());
+    assertEquals(tag, request.tag(Object.class));
+    assertNull(request.tag(UUID.class));
+    assertNull(request.tag(String.class));
+  }
+
+  @Test public void typedTag() {
+    UUID uuidTag = UUID.randomUUID();
+    Request request = new Request.Builder()
+        .url("https://square.com")
+        .tag(UUID.class, uuidTag)
+        .build();
+    assertNull(request.tag());
+    assertNull(request.tag(Object.class));
+    assertEquals(uuidTag, request.tag(UUID.class));
+    assertNull(request.tag(String.class));
+  }
+
+  @Test public void replaceOnlyTag() {
+    UUID uuidTag1 = UUID.randomUUID();
+    UUID uuidTag2 = UUID.randomUUID();
+    Request request = new Request.Builder()
+        .url("https://square.com")
+        .tag(UUID.class, uuidTag1)
+        .tag(UUID.class, uuidTag2)
+        .build();
+    assertEquals(uuidTag2, request.tag(UUID.class));
+  }
+
+  @Test public void multipleTags() {
+    UUID uuidTag = UUID.randomUUID();
+    String stringTag = "dilophosaurus";
+    Long longTag = 20170815L;
+    Object objectTag = new Object();
+    Request request = new Request.Builder()
+        .url("https://square.com")
+        .tag(Object.class, objectTag)
+        .tag(UUID.class, uuidTag)
+        .tag(String.class, stringTag)
+        .tag(Long.class, longTag)
+        .build();
+    assertEquals(objectTag, request.tag());
+    assertEquals(objectTag, request.tag(Object.class));
+    assertEquals(uuidTag, request.tag(UUID.class));
+    assertEquals(stringTag, request.tag(String.class));
+    assertEquals(longTag, request.tag(Long.class));
+  }
+
+  /** Confirm that we don't accidentally share the backing map between objects. */
+  @Test public void tagsAreImmutable() {
+    Request.Builder builder = new Request.Builder()
+        .url("https://square.com");
+    Request requestA = builder.tag(String.class, "a").build();
+    Request requestB = builder.tag(String.class, "b").build();
+    Request requestC = requestA.newBuilder().tag(String.class, "c").build();
+    assertEquals("a", requestA.tag(String.class));
+    assertEquals("b", requestB.tag(String.class));
+    assertEquals("c", requestC.tag(String.class));
   }
 
   private String bodyToHex(RequestBody body) throws IOException {
